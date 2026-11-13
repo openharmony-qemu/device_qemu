@@ -130,7 +130,7 @@ private:
     uint64_t mDpmsState = 0;
     uint32_t mPropCrtcId = DRM_INVALID_ID;
     uint32_t mPropBrightnessId = DRM_INVALID_ID;
-    uint32_t mBrightnessLevel = 0;
+    uint32_t mBrightnessLevel = 128;
     std::unordered_map<int32_t, DrmMode> mModes;
     int32_t mPreferenceId = INVALID_MODE_ID;
 

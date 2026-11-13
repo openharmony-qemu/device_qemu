@@ -24,8 +24,43 @@ typedef struct _CAPTURE_DATA_ {
     long tempVolume;
 } CaptureData;
 
+static bool IsQemuLoopbackCapture(const struct AlsaCapture *captureIns)
+{
+    return captureIns != NULL && strcmp(captureIns->soundCard.alsaCardId, "QemuCapture") == 0;
+}
+
+static int32_t StartQemuLoopbackCapture(struct AlsaCapture *captureIns)
+{
+    struct AlsaSoundCard *card = &captureIns->soundCard;
+    CHECK_NULL_PTR_RETURN_DEFAULT(card->pcmHandle);
+    if (snd_pcm_state(card->pcmHandle) != SND_PCM_STATE_RUNNING) {
+        if (snd_pcm_prepare(card->pcmHandle) < 0 || snd_pcm_start(card->pcmHandle) < 0) {
+            return HDF_FAILURE;
+        }
+    }
+    card->mmapFlag = true;
+    card->pauseState = false;
+    return HDF_SUCCESS;
+}
+
+static int32_t StopQemuLoopbackCapture(struct AlsaCapture *captureIns)
+{
+    struct AlsaSoundCard *card = &captureIns->soundCard;
+    CHECK_NULL_PTR_RETURN_DEFAULT(card->pcmHandle);
+    if (snd_pcm_drop(card->pcmHandle) < 0) {
+        return HDF_FAILURE;
+    }
+    card->mmapFlag = false;
+    card->pauseState = true;
+    return HDF_SUCCESS;
+}
+
 static int32_t CaptureInitImpl(struct AlsaCapture *captureIns)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return HDF_SUCCESS; // No mixer exists; PCM open/parameters/start each perform their own checks.
+    }
     if (captureIns->priData != NULL) {
         return HDF_SUCCESS;
     }
@@ -48,15 +83,21 @@ static int32_t CaptureInitImpl(struct AlsaCapture *captureIns)
     return HDF_SUCCESS;
 }
 
-static int32_t CaptureSelectSceneImpl(struct AlsaCapture *captureIns, enum AudioPortPin descPins,
-    const struct PathDeviceInfo *deviceInfo)
+static int32_t CaptureSelectSceneImpl(struct AlsaCapture *captureIns,
+    const struct AudioHwCaptureParam *handleData)
 {
-    captureIns->descPins = descPins;
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    CHECK_NULL_PTR_RETURN_DEFAULT(handleData);
+    captureIns->descPins = handleData->captureMode.hwInfo.deviceDescript.pins;
     return HDF_SUCCESS;
 }
 
 static int32_t CaptureGetVolThresholdImpl(struct AlsaCapture *captureIns, long *volMin, long *volMax)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return HDF_ERR_NOT_SUPPORT;
+    }
     int32_t ret;
     long _volMin = 0;
     long _volMax = 0;
@@ -78,6 +119,10 @@ static int32_t CaptureGetVolThresholdImpl(struct AlsaCapture *captureIns, long *
 
 static int32_t CaptureGetVolumeImpl(struct AlsaCapture *captureIns, long *volume)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return HDF_ERR_NOT_SUPPORT;
+    }
     int32_t ret;
     long volLeft = 0;
     long volRight = 0;
@@ -103,6 +148,10 @@ static int32_t CaptureGetVolumeImpl(struct AlsaCapture *captureIns, long *volume
 
 static int32_t CaptureSetVolumeImpl(struct AlsaCapture *captureIns, long volume)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return HDF_ERR_NOT_SUPPORT;
+    }
     int32_t ret;
     struct AlsaSoundCard *cardIns = (struct AlsaSoundCard *)captureIns;
     CaptureData *priData = CaptureGetPriData(captureIns);
@@ -124,6 +173,10 @@ static int32_t CaptureSetVolumeImpl(struct AlsaCapture *captureIns, long volume)
 
 static int32_t CaptureSetMuteImpl(struct AlsaCapture *captureIns, bool muteFlag)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return HDF_ERR_NOT_SUPPORT;
+    }
     int32_t ret;
     long vol;
     long setVol;
@@ -142,7 +195,7 @@ static int32_t CaptureSetMuteImpl(struct AlsaCapture *captureIns, bool muteFlag)
     } else {
         setVol = priData->tempVolume;
     }
-    captureIns->SetVolume(captureIns, setVol);
+    ret = captureIns->SetVolume(captureIns, setVol);
     if (ret != HDF_SUCCESS) {
         AUDIO_FUNC_LOGE("SetVolume failed!");
         return HDF_FAILURE;
@@ -151,10 +204,16 @@ static int32_t CaptureSetMuteImpl(struct AlsaCapture *captureIns, bool muteFlag)
     return HDF_SUCCESS;
 }
 
-static int32_t CaptureStartImpl(struct AlsaCapture *captureIns)
+static int32_t CaptureStartImpl(struct AlsaCapture *captureIns,
+    const struct AudioHwCaptureParam *handleData)
 {
+    (void)handleData;
     struct AlsaMixerCtlElement mixerItem;
     CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return StartQemuLoopbackCapture(captureIns);
+    }
 
     SndElementItemInit(&mixerItem);
     mixerItem.numid = SND_NUMID_CAPUTRE_MIC_PATH;
@@ -167,6 +226,10 @@ static int32_t CaptureStartImpl(struct AlsaCapture *captureIns)
 
 static int32_t CaptureStopImpl(struct AlsaCapture *captureIns)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return StopQemuLoopbackCapture(captureIns);
+    }
     struct AlsaMixerCtlElement mixerItem;
     CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
     CHECK_NULL_PTR_RETURN_DEFAULT(&captureIns->soundCard);
@@ -183,18 +246,30 @@ static int32_t CaptureStopImpl(struct AlsaCapture *captureIns)
 
 static int32_t CaptureGetGainThresholdImpl(struct AlsaCapture *captureIns, float *gainMin, float *gainMax)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return HDF_ERR_NOT_SUPPORT;
+    }
     AUDIO_FUNC_LOGE("8541e not support gain operation");
     return HDF_SUCCESS;
 }
 
 static int32_t CaptureGetGainImpl(struct AlsaCapture *captureIns, float *volume)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return HDF_ERR_NOT_SUPPORT;
+    }
     AUDIO_FUNC_LOGE("8541e not support gain operation");
     return HDF_SUCCESS;
 }
 
 static int32_t CaptureSetGainImpl(struct AlsaCapture *captureIns, float volume)
 {
+    CHECK_NULL_PTR_RETURN_DEFAULT(captureIns);
+    if (IsQemuLoopbackCapture(captureIns)) {
+        return HDF_ERR_NOT_SUPPORT;
+    }
     AUDIO_FUNC_LOGE("8541e not support gain operation");
     return HDF_SUCCESS;
 }
@@ -227,4 +302,10 @@ int32_t CaptureOverrideFunc(struct AlsaCapture *captureIns)
     }
 
     return HDF_SUCCESS;
+}
+
+int32_t CaptureGetSceneDev(enum AudioCategory scene)
+{
+    (void)scene;
+    return -1;
 }

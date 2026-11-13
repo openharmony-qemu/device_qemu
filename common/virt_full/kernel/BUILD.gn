@@ -35,9 +35,15 @@ if (target_cpu == "arm") {
 }
 
 action("build_kernel") {
-  script = "build_kernel.sh"
-  sources = [ kernel_source_dir ]
+  script = "build_kernel_with_evidence.sh"
+  # A directory's mtime does not change when a nested source is patched.
+  # Preparation hashes actual kernel/config/HDI inputs before GN traversal.
+  sources = [
+    kernel_source_dir,
+    "//.ohos-qemu-kernel-inputs.json",
+  ]
   outputs = [ "$root_build_dir/packages/phone/images/$kernel_image" ]
+  outputs += [ "$root_build_dir/packages/phone/images/kernel-inputs.json" ]
   outputs += kernel_module_outputs
   args = [
       rebase_path(kernel_build_script_dir,root_build_dir),

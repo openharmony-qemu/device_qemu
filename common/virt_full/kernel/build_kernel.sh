@@ -16,6 +16,7 @@ export KERNEL_SOURCE_DIR=${4}
 export KERNEL_PATCH_PATH=${5}
 export KERNEL_CONFIG_NAME=${6}_virt_defconfig
 export KERNEL_MODULES_OUT=$(realpath -m ${ACTION_ROOT}/${7})
+export QEMU_QOS_CONFIG=${KERNEL_PATCH_PATH}/qos.config
 
 export OUT_DIR=${OHOS_SOURCE_ROOT}/out
 
@@ -46,9 +47,16 @@ then
 fi
 
 function copy_kernel(){
-    rm -rf ${KERNEL_BUILD_ROOT}
-    mkdir -p ${OHOS_SOURCE_ROOT}/out/kernel/OBJ
-    cp -rL ${KERNEL_SOURCE_DIR}  ${KERNEL_BUILD_ROOT}
+    rm -rf "${KERNEL_BUILD_ROOT}"
+    mkdir -p "${KERNEL_BUILD_ROOT}"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete --copy-links --exclude='.git' \
+            "${KERNEL_SOURCE_DIR}/" "${KERNEL_BUILD_ROOT}/"
+    else
+        tar --exclude='./.git' --exclude='.git' \
+            -C "${KERNEL_SOURCE_DIR}" -chf - . \
+            | tar -C "${KERNEL_BUILD_ROOT}" -xf -
+    fi
 
     cd ${KERNEL_BUILD_ROOT}
 
@@ -67,6 +75,9 @@ function copy_kernel(){
 
 #cp config
     cp ${KERNEL_PATCH_PATH}/${KERNEL_CONFIG_NAME} ${KERNEL_BUILD_ROOT}/.config
+    if [ -f "${QEMU_QOS_CONFIG}" ]; then
+        bash scripts/kconfig/merge_config.sh -m .config "${QEMU_QOS_CONFIG}"
+    fi
 
     if [ -f arch/x86/Kconfig.cpu ]; then
         sed -i '/^config CPU_SUP_AMD$/{n;s/default y/default n/;}' arch/x86/Kconfig.cpu
@@ -79,10 +90,15 @@ function copy_kernel(){
 #cp common_modules
     cp -arfL  $OHOS_SOURCE_ROOT/kernel/linux/common_modules/memory_security ${KERNEL_BUILD_ROOT}/fs/proc
     cp -arfL  $OHOS_SOURCE_ROOT/kernel/linux/common_modules/code_sign ${KERNEL_BUILD_ROOT}/fs
+    cp -arfL  $OHOS_SOURCE_ROOT/kernel/linux/common_modules/xpm ${KERNEL_BUILD_ROOT}/security
+    cp $OHOS_SOURCE_ROOT/kernel/linux/linux-5.10/scripts/ohos-check-dir.sh ${KERNEL_BUILD_ROOT}/scripts/
     cp -arfL  $OHOS_SOURCE_ROOT/kernel/linux/common_modules/dec ${KERNEL_BUILD_ROOT}/fs
+    bash "$OHOS_SOURCE_ROOT/kernel/linux/common_modules/qos_auth/apply_qos_auth.sh" \
+        "$OHOS_SOURCE_ROOT" "$KERNEL_BUILD_ROOT" virt "${6}_virt"
 #patch
     patch -d ${KERNEL_BUILD_ROOT} -p1 <${KERNEL_PATCH_PATH}/patch/hdf.patch
     patch -d ${KERNEL_BUILD_ROOT} -p1 <${KERNEL_PATCH_PATH}/patch/virt.patch
+    patch -d ${KERNEL_BUILD_ROOT} -p1 <${KERNEL_PATCH_PATH}/patch/qos_auth.patch
     patch -d ${KERNEL_BUILD_ROOT} -p1 <${KERNEL_PATCH_PATH}/patch/x86_pfnmap_tracking.patch
     patch -d ${KERNEL_BUILD_ROOT} -p1 <${KERNEL_PATCH_PATH}/patch/drivers_staging_android.patch
     patch -d ${KERNEL_BUILD_ROOT} -p1 <${KERNEL_PATCH_PATH}/patch/virtio_gpu.patch
@@ -153,7 +169,7 @@ function make_kernel(){
             --disable CPU_SUP_AMD
     fi
     clean_hdf
-    make ${MAKE_OPTIONS} -j$(nproc)
+    make ${MAKE_OPTIONS} -j"${OHOS_KERNEL_BUILD_JOBS:-$(nproc)}"
     mkdir -p ${OHOS_IMAGES_DIR}
     cp ${KERNEL_OUT_IMAGE} ${OHOS_IMAGES_DIR}
     stage_ko
@@ -161,6 +177,35 @@ function make_kernel(){
 }
 
 ##main
+if [ "${OHOS_SKIP_KERNEL_REBUILD_IF_COMPLETE:-0}" = "1" ]; then
+    FINAL_KERNEL_IMAGE="${OHOS_IMAGES_DIR}/$(basename "${KERNEL_OUT_IMAGE}")"
+    COMPLETE_KERNEL_OUTPUTS=1
+    for OUTPUT in \
+        "${FINAL_KERNEL_IMAGE}" \
+        "${KERNEL_MODULES_OUT}/rtw89_core.ko" \
+        "${KERNEL_MODULES_OUT}/rtw89_pci.ko" \
+        "${KERNEL_MODULES_OUT}/rtw89_8852a.ko" \
+        "${KERNEL_MODULES_OUT}/rtw89_8852ae.ko" \
+        "${KERNEL_MODULES_OUT}/mt7601u.ko" \
+        "${KERNEL_MODULES_OUT}/mac80211_hwsim.ko" \
+        "${KERNEL_MODULES_OUT}/virt_wifi.ko" \
+        "${KERNEL_MODULES_OUT}/libarc4.ko" \
+        "${KERNEL_MODULES_OUT}/mac80211.ko" \
+        "${KERNEL_MODULES_OUT}/cfg80211.ko" \
+        "${KERNEL_MODULES_OUT}/iwlwifi.ko" \
+        "${KERNEL_MODULES_OUT}/iwlmvm.ko"; do
+        if [ ! -s "${OUTPUT}" ]; then
+            COMPLETE_KERNEL_OUTPUTS=0
+            break
+        fi
+    done
+    if [ "${COMPLETE_KERNEL_OUTPUTS}" = "1" ]; then
+        echo "reuse complete external kernel outputs: ${FINAL_KERNEL_IMAGE}"
+        popd
+        exit 0
+    fi
+fi
+
 # Always refresh the kernel copy. This board script has no dependency
 # tracking like rk3568, so reusing an old OBJ tree can keep stale patched
 # sources and hide fixes made in kernel/linux/linux-6.6.

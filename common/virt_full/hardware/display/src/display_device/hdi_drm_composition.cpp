@@ -15,6 +15,7 @@
 
 #include "hdi_drm_composition.h"
 #include <cerrno>
+#include <unistd.h>
 #include "hdi_drm_layer.h"
 
 namespace OHOS {
@@ -168,30 +169,35 @@ int32_t HdiDrmComposition::UpdateMode(std::unique_ptr<DrmModeBlock> &modeBlock)
     DISPLAY_LOGD();
     if (mCrtc->NeedModeSet()) {
         int drmFd = mDrmDevice->GetDrmFd();
-        drmModeAtomicReqPtr pset = drmModeAtomicAlloc();
+        std::unique_ptr<drmModeAtomicReq, decltype(&drmModeAtomicFree)> pset(
+            drmModeAtomicAlloc(), drmModeAtomicFree);
+        DISPLAY_CHK_RETURN((pset == nullptr), DISPLAY_FAILURE,
+            DISPLAY_LOGE("can not allocate atomic mode request"));
         modeBlock = mConnector->GetModeBlockFromId(mCrtc->GetActiveModeId());
+        DISPLAY_CHK_RETURN((modeBlock == nullptr || modeBlock->GetBlockId() == DRM_INVALID_ID),
+            DISPLAY_FAILURE, DISPLAY_LOGE("can not create requested mode block"));
         if ((modeBlock != nullptr) && (modeBlock->GetBlockId() != DRM_INVALID_ID)) {
             // set to active
             DISPLAY_LOGD("set crtc to active");
-            int ret = drmModeAtomicAddProperty(pset, mCrtc->GetId(), mCrtc->GetActivePropId(), 1);
+            int ret = drmModeAtomicAddProperty(pset.get(), mCrtc->GetId(), mCrtc->GetActivePropId(), 1);
             DISPLAY_CHK_RETURN((ret < 0), DISPLAY_FAILURE,
                 DISPLAY_LOGE("can not add the active prop errno %{public}d", errno));
 
             // set the mode id
             DISPLAY_LOGD("set the mode");
-            ret = drmModeAtomicAddProperty(pset, mCrtc->GetId(), mCrtc->GetModePropId(), modeBlock->GetBlockId());
+            ret = drmModeAtomicAddProperty(pset.get(), mCrtc->GetId(), mCrtc->GetModePropId(), modeBlock->GetBlockId());
             DISPLAY_LOGD("set the mode planeId %{public}d, propId %{public}d, GetBlockId: %{public}d",
                 mCrtc->GetId(), mCrtc->GetModePropId(), modeBlock->GetBlockId());
             DISPLAY_CHK_RETURN((ret < 0), DISPLAY_FAILURE,
                 DISPLAY_LOGE("can not add the mode prop errno %{public}d", errno));
-            ret = drmModeAtomicAddProperty(pset, mConnector->GetId(), mConnector->GetPropCrtcId(), mCrtc->GetId());
+            ret = drmModeAtomicAddProperty(pset.get(), mConnector->GetId(), mConnector->GetPropCrtcId(), mCrtc->GetId());
             DISPLAY_LOGD("set the connector id: %{public}d, propId %{public}d, crtcId %{public}d",
                 mConnector->GetId(), mConnector->GetPropCrtcId(), mCrtc->GetId());
             DISPLAY_CHK_RETURN((ret < 0), DISPLAY_FAILURE,
                 DISPLAY_LOGE("can not add the crtc id prop %{public}d", errno));
 
             uint32_t flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
-            ret = drmModeAtomicCommit(drmFd, pset, flags, nullptr);
+            ret = drmModeAtomicCommit(drmFd, pset.get(), flags, nullptr);
             DISPLAY_CHK_RETURN((ret != 0), DISPLAY_FAILURE,
                 DISPLAY_LOGE("drmModeAtomicCommit failed %{public}d errno %{public}d", ret, errno));
             mCrtc->ClearModeSet();
@@ -247,10 +253,16 @@ int32_t HdiDrmComposition::FindPlaneAndApply(drmModeAtomicReqPtr pset)
 
 int32_t HdiDrmComposition::Apply(bool modeSet)
 {
-    uint64_t crtcOutFence = -1;
+    int32_t crtcOutFence = -1;
     int ret = 0;
     std::unique_ptr<DrmModeBlock> modeBlock;
     int drmFd = mDrmDevice->GetDrmFd();
+
+    for (auto layer : mCompLayers) {
+        if (layer != nullptr) {
+            layer->SetReleaseFence(-1);
+        }
+    }
 
     ret = UpdateMode(modeBlock);
     DISPLAY_CHK_RETURN((ret != DISPLAY_SUCCESS), DISPLAY_FAILURE, DISPLAY_LOGE("update mode failed"));
@@ -264,7 +276,7 @@ int32_t HdiDrmComposition::Apply(bool modeSet)
 
     // set the outFence property
     ret = drmModeAtomicAddProperty(atomicReqPtr.Get(), mCrtc->GetId(), mCrtc->GetOutFencePropId(),
-        (uint64_t)&crtcOutFence);
+        reinterpret_cast<uint64_t>(&crtcOutFence));
 
     DISPLAY_LOGD("Apply Set OutFence crtc id: %{public}d, fencePropId %{public}d", mCrtc->GetId(),
         mCrtc->GetOutFencePropId());
@@ -295,11 +307,21 @@ int32_t HdiDrmComposition::Apply(bool modeSet)
     uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK;
 
     ret = drmModeAtomicCommit(drmFd, atomicReqPtr.Get(), flags, nullptr);
+    if (ret != 0 && errno == EBUSY) {
+        ret = drmModeAtomicCommit(drmFd, atomicReqPtr.Get(), 0, nullptr);
+    }
     DISPLAY_CHK_RETURN((ret != 0), DISPLAY_FAILURE,
         DISPLAY_LOGE("drmModeAtomicCommit failed %{public}d errno %{public}d", ret, errno));
-    // set the release fence
-    for (auto layer : mCompLayers) {
-        layer->SetReleaseFence(static_cast<int>(crtcOutFence));
+    // set the release fence with independent fd ownership per layer
+    if (crtcOutFence >= 0) {
+        if (mCompLayers.empty()) {
+            close(crtcOutFence);
+        } else {
+            mCompLayers[0]->SetReleaseFence(crtcOutFence);
+            for (size_t i = 1; i < mCompLayers.size(); ++i) {
+                mCompLayers[i]->SetReleaseFence(dup(crtcOutFence));
+            }
+        }
     }
 
     return DISPLAY_SUCCESS;

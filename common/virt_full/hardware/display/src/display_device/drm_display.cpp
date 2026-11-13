@@ -17,6 +17,7 @@
 #include <string>
 #include <cerrno>
 #include <memory>
+#include <limits>
 #include <sys/ioctl.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -94,7 +95,15 @@ int32_t DrmDisplay::GetDisplayMode(uint32_t *modeId)
 
 int32_t DrmDisplay::SetDisplayMode(uint32_t modeId)
 {
-    return mCrtc->SetActivieMode(modeId);
+    DISPLAY_CHK_RETURN((mConnector == nullptr || mCrtc == nullptr), DISPLAY_NULL_PTR,
+        DISPLAY_LOGE("display connector or crtc is nullptr"));
+    DISPLAY_CHK_RETURN((modeId > static_cast<uint32_t>(std::numeric_limits<int32_t>::max())),
+        DISPLAY_PARAM_ERR, DISPLAY_LOGE("mode id is out of range"));
+    DrmMode mode;
+    int32_t id = static_cast<int32_t>(modeId);
+    DISPLAY_CHK_RETURN((mConnector->GetModeFromId(id, mode) != DISPLAY_SUCCESS),
+        DISPLAY_PARAM_ERR, DISPLAY_LOGE("mode %{public}d is not advertised by this connector", id));
+    return mCrtc->SetActivieMode(id);
 }
 
 int32_t DrmDisplay::GetDisplayPowerStatus(DispPowerStatus *status)
@@ -208,7 +217,9 @@ int32_t DrmDisplay::PushFirstFrame()
     std::vector<HdiLayer *> layers;
     HdiDrmComposition *drmComp = static_cast<HdiDrmComposition *>(mComposer->GetPostCompostion());
     drmComp->SetLayers(layers, *mClientLayer);
-    drmComp->Apply(true);
+    ret = drmComp->Apply(true);
+    DISPLAY_CHK_RETURN((ret != DISPLAY_SUCCESS), DISPLAY_FAILURE, DISPLAY_LOGE("first frame apply failed"));
+    mConnector->SetDpmsState(DRM_MODE_DPMS_ON);
     return DISPLAY_SUCCESS;
 }
 

@@ -16,6 +16,7 @@ import("device.gni")
 
 group("virt_group") {
   deps = [
+    "//device/qemu/common/virt_full/qemu_gnss_runtime:qemu_gnss_runtime",
     "cfg:init_configs",
     "//device/qemu/common/virt_full/kernel:build_kernel",
     "//device/qemu/common/virt_full/kernel:virt_ko",

@@ -17,6 +17,7 @@
 #include <string>
 #include <cerrno>
 #include <fcntl.h>
+#include <unistd.h>
 #include <memory>
 #include <drm_fourcc.h>
 #include "display_log.h"
@@ -134,9 +135,17 @@ int32_t DrmDevice::Init()
     DISPLAY_CHK_RETURN((ret), DISPLAY_FAILURE,
         DISPLAY_LOGE("DRM_CLIENT_CAP_ATOMIC set failed %{public}s", strerror(errno)));
 
-    ret = drmSetMaster(GetDrmFd());
+    constexpr int drmMasterMaxRetries = 50;
+    constexpr useconds_t drmMasterRetryUs = 10000;
+    for (int attempt = 0; attempt <= drmMasterMaxRetries; ++attempt) {
+        ret = drmSetMaster(GetDrmFd());
+        if (ret == 0 || errno != EBUSY || attempt == drmMasterMaxRetries) {
+            break;
+        }
+        usleep(drmMasterRetryUs);
+    }
     DISPLAY_CHK_RETURN((ret), DISPLAY_FAILURE, DISPLAY_LOGE("can not set to master errno : %{public}d", errno));
-    DISPLAY_LOGE("chenyf master");
+    DISPLAY_LOGD("drmSetMaster acquired");
     ret = drmIsMaster(GetDrmFd());
     DISPLAY_CHK_RETURN((!ret), DISPLAY_FAILURE, DISPLAY_LOGE("is not master : %{public}d", errno));
     DISPLAY_LOGI("DrmDevice Init success fd=%{public}d", GetDrmFd());

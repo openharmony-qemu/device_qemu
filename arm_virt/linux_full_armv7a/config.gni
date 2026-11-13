@@ -1,0 +1,6 @@
+# Copyright (c) 2022 Huawei Device Co., Ltd.
+
+board_arch = "armv7-a"
+board_cpu = "cortex-a7"
+board_toolchain_type = "clang"
+board_fpu = "neon-vfpv4"

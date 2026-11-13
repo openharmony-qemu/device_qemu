@@ -84,7 +84,7 @@ int32_t DrmConnector::Init(DrmDevice &drmDevice)
     ret = drmDevice.GetConnectorProperty(*this, PROP_DPMS, prop);
     DISPLAY_CHK_RETURN((ret != DISPLAY_SUCCESS), DISPLAY_FAILURE, DISPLAY_LOGE("can not get mode prop id"));
     mPropDpmsId = prop.propId;
-    mDpmsState = prop.value;
+    mDpmsState = (mConnectState == DRM_MODE_CONNECTED) ? DRM_MODE_DPMS_ON : prop.value;
     DISPLAY_LOGD("dpms state : %{public}" PRIu64 "", mDpmsState);
     // find the crtcid
     ret = drmDevice.GetConnectorProperty(*this, PROP_CRTCID, prop);
@@ -99,7 +99,7 @@ int32_t DrmConnector::Init(DrmDevice &drmDevice)
 int32_t DrmConnector::GetBrightness(uint32_t &level)
 {
     if (mPropBrightnessId == DRM_INVALID_ID) {
-        DISPLAY_LOGE("the prop id of brightness is invalid");
+        DISPLAY_LOGD("the prop id of brightness is invalid");
         //return DISPLAY_NOT_SUPPORT;
     }
     level = mBrightnessLevel;
@@ -116,12 +116,18 @@ int32_t DrmConnector::SetBrightness(uint32_t level)
     char buffer[10];
     int32_t light_level;
 
-    if (blFd <= 0) {
+    static bool virtualBacklight = false;
+    if (!virtualBacklight && blFd <= 0) {
         blFd = open("/sys/class/backlight/backlight/brightness", O_RDWR);
         if (blFd < 0) {
-            DISPLAY_LOGE("DrmConnector::SetBrightness open file error %{public}s", strerror(errno));
-            return DISPLAY_FAILURE;
+            DISPLAY_LOGW("DrmConnector::SetBrightness no sysfs backlight (%{public}s), using virtual brightness",
+                strerror(errno));
+            virtualBacklight = true;
         }
+    }
+    if (virtualBacklight) {
+        mBrightnessLevel = level;
+        return DISPLAY_SUCCESS;
     }
     if (level < 0) {
         DISPLAY_LOGE("DrmConnector::SetBrightness write error");
@@ -359,7 +365,10 @@ int32_t DrmConnector::SetDpmsState(uint64_t dmps)
 {
     DISPLAY_LOGD("dmps %{public}" PRIu64 "", dmps);
     int ret = drmModeConnectorSetProperty(mDrmFdPtr->GetFd(), mId, mPropDpmsId, dmps);
-    DISPLAY_CHK_RETURN((ret != 0), DISPLAY_FAILURE, DISPLAY_LOGE("can not set dpms"));
+    if (ret != 0) {
+        DISPLAY_LOGW("drmModeConnectorSetProperty dpms=%{public}" PRIu64 " ret=%{public}d, tracking virtual dpms",
+            dmps, ret);
+    }
     mDpmsState = dmps;
     return DISPLAY_SUCCESS;
 }

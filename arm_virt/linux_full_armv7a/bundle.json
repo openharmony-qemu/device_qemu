@@ -1,0 +1,52 @@
+{
+  "name": "@ohos/qemu_armv7a_linux_full_device",
+  "description": "device part definition for qemu armv7a linux full",
+  "version": "4.0",
+  "license": "Apache License 2.0",
+  "publishAs": "code-segment",
+  "segment": {
+    "destPath": "device/qemu/arm_virt/linux_full_armv7a"
+  },
+  "dirs": {},
+  "scripts": {},
+  "component": {
+    "name": "qemu_virt_full_armv7a",
+    "subsystem": "device_armv7a_virt",
+    "features": [],
+    "adapted_system_type": [
+      "standard"
+    ],
+    "rom": "",
+    "ram": "",
+    "deps": {
+      "components": [
+        "c_utils",
+        "drivers_interface_camera",
+        "drivers_interface_display",
+        "drivers_interface_vibrator",
+        "drivers_peripheral_camera",
+        "drivers_peripheral_vibrator",
+        "ffmpeg",
+        "graphic_surface",
+        "hdf_core",
+        "hilog",
+        "hitrace",
+        "ipc",
+        "samgr"
+      ],
+      "third_party": [
+        "libdrm"
+      ]
+    },
+    "build": {
+      "sub_component": [
+        "//drivers/peripheral/camera/vdi_base/usb_camera:usb_camera_vdi_impl",
+        "//device/qemu/arm_virt/linux_full_armv7a:qemu-armv7a-linux-full-group"
+      ],
+      "inner_kits": [],
+      "test": [
+        "//kernel/linux/build/test:linuxkerneltest"
+      ]
+    }
+  }
+}

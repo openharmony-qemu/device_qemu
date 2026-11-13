@@ -270,12 +270,12 @@ index dc6d08423..2f7b06ce8 100644
  
  endif # BLOCK
  
-@@ -129,10 +128,6 @@ config FILE_LOCKING
+@@ -129,10 +128,8 @@ config FILE_LOCKING
  
  source "fs/crypto/Kconfig"
  
--source "fs/code_sign/Kconfig"
--
+ source "fs/code_sign/Kconfig"
+ 
 -source "fs/dec/Kconfig"
 -
  source "fs/verity/Kconfig"
@@ -285,11 +285,11 @@ diff --git a/fs/Makefile b/fs/Makefile
 index 66438333e..8b9107451 100644
 --- a/fs/Makefile
 +++ b/fs/Makefile
-@@ -30,8 +30,6 @@ obj-$(CONFIG_USERFAULTFD)	+= userfaultfd.o
+@@ -30,8 +30,7 @@ obj-$(CONFIG_USERFAULTFD)	+= userfaultfd.o
  obj-$(CONFIG_AIO)               += aio.o
  obj-$(CONFIG_FS_DAX)		+= dax.o
  obj-$(CONFIG_FS_ENCRYPTION)	+= crypto/
--obj-$(CONFIG_SECURITY_CODE_SIGN)	+= code_sign/
+ obj-$(CONFIG_SECURITY_CODE_SIGN)	+= code_sign/
 -obj-$(CONFIG_SECURITY_DEC)	+= dec/
  obj-$(CONFIG_FS_VERITY)		+= verity/
  obj-$(CONFIG_FILE_LOCKING)      += locks.o
@@ -599,11 +599,11 @@ diff --git a/security/Kconfig b/security/Kconfig
 index 89e5dbcb46e0..52c9af08ad35 100644
 --- a/security/Kconfig
 +++ b/security/Kconfig
-@@ -193,9 +193,7 @@ source "security/loadpin/Kconfig"
+@@ -193,9 +193,8 @@ source "security/loadpin/Kconfig"
  source "security/yama/Kconfig"
  source "security/safesetid/Kconfig"
  source "security/lockdown/Kconfig"
--source "security/xpm/Kconfig"
+ source "security/xpm/Kconfig"
  source "security/landlock/Kconfig"
 -source "security/container_escape_detection/Kconfig"
  
@@ -621,11 +621,11 @@ index 1fbed3e27..18121f8f8 100644
  
  # always enable default capabilities
  obj-y					+= commoncap.o
-@@ -24,9 +23,7 @@ obj-$(CONFIG_SECURITY_SAFESETID)       += safesetid/
+@@ -24,9 +23,8 @@ obj-$(CONFIG_SECURITY_SAFESETID)       += safesetid/
  obj-$(CONFIG_SECURITY_LOCKDOWN_LSM)	+= lockdown/
  obj-$(CONFIG_CGROUPS)			+= device_cgroup.o
  obj-$(CONFIG_BPF_LSM)			+= bpf/
--obj-$(CONFIG_SECURITY_XPM)		+= xpm/
+ obj-$(CONFIG_SECURITY_XPM)		+= xpm/
  obj-$(CONFIG_SECURITY_LANDLOCK)		+= landlock/
 -obj-$(CONFIG_SECURITY_CONTAINER_ESCAPE_DETECTION) += container_escape_detection/
  

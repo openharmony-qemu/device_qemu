@@ -15,11 +15,20 @@ import("//build/ohos.gni")
 
 group("hardware_group") {
   deps = [
-    "//device/qemu/common/virt_full/hardware/gpu:virtio",
     "//third_party/alsa-utils:entry",
     #"//third_party/mesa3d:zink_opengl",
     #"//third_party/expat:expat",
     #"//third_party/glmark2:glmark2",
     "//third_party/alsa-lib:libasound",
   ]
+
+  deps += [ "//device/qemu/common/virt_full/hardware/vulkan:swiftshader_vulkan" ]
+
+  # The checked-in GPU binaries only cover arm64 and x86_64. Build Mesa's
+  # kms_swrast driver from source for the armv7a QEMU product.
+  if (target_cpu == "arm") {
+    deps += [ "//third_party/mesa3d/ohos:mesa3d_all_libs" ]
+  } else {
+    deps += [ "//device/qemu/common/virt_full/hardware/gpu:virtio" ]
+  }
 }

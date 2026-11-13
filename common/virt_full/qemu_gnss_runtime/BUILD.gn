@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+import("//build/ohos.gni")
+import("//device/qemu/common/virt_full/device.gni")
+ohos_prebuilt_etc("qemu_gnss_input_cfg") {
+  source = "qemu_gnss_input.cfg"
+  output = "qemu_gnss_input.cfg"
+  relative_install_dir = "init"
+  subsystem_name = virt_subsystem_name
+  part_name = virt_part_name
+}
+group("qemu_gnss_runtime") {
+  deps = [
+    ":qemu_gnss_input_cfg",
+    ":qemu_gnss_standalone_param",
+    "//device/qemu/common/virt_full/external_gnss:qemu_external_gnss",
+  ]
+}
+ohos_prebuilt_etc("qemu_gnss_standalone_param") {
+  source = "qemu_gnss.para"
+  output = "qemu_gnss.para"
+  relative_install_dir = "param"
+  subsystem_name = virt_subsystem_name
+  part_name = virt_part_name
+}
